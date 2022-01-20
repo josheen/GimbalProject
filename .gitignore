@@ -1,2 +1,6 @@
 .settings
 .mxproject
+Debug
+GimbalProjectDebug.launch
+.DS_store
+*.launch
