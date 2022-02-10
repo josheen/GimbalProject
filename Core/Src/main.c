@@ -68,6 +68,18 @@ const osThreadAttr_t ledBattTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for imuTask */
+osThreadId_t imuTaskHandle;
+const osThreadAttr_t imuTask_attributes = {
+  .name = "imuTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for spatialSmphr */
+osSemaphoreId_t spatialSmphrHandle;
+const osSemaphoreAttr_t spatialSmphr_attributes = {
+  .name = "spatialSmphr"
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -80,6 +92,7 @@ static void MX_TIM2_Init(void);
 static void MX_I2C1_Init(void);
 void StartCtrlSysTask(void *argument);
 void StartLedBattTask(void *argument);
+void StartIMUTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -95,6 +108,8 @@ PUTCHAR_PROTOTYPE
 
   return ch;
 }
+
+bno055_vector_t spatialOrientation;
 /* USER CODE END 0 */
 
 /**
@@ -139,6 +154,10 @@ int main(void)
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
 
+  /* Create the semaphores(s) */
+  /* creation of spatialSmphr */
+  spatialSmphrHandle = osSemaphoreNew(1, 1, &spatialSmphr_attributes);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
@@ -157,6 +176,9 @@ int main(void)
 
   /* creation of ledBattTask */
   ledBattTaskHandle = osThreadNew(StartLedBattTask, NULL, &ledBattTask_attributes);
+
+  /* creation of imuTask */
+  imuTaskHandle = osThreadNew(StartIMUTask, NULL, &imuTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -305,9 +327,9 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
@@ -462,15 +484,27 @@ static void MX_GPIO_Init(void)
 void StartCtrlSysTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	bno055_assignI2C(&hi2c1);
-	bno055_setup();
-	bno055_setOperationModeNDOF();
+	float pitch;
+	int32_t pwmControl;
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
   /* Infinite loop */
   for(;;)
   {
-	bno055_vector_t v = bno055_getVectorEuler();
-	printf("y%.2fyp%.2fpr%.2fr\n", v.x, v.y, v.z);
-    osDelay(30);
+	//osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
+//	pitch = spatialOrientation.y;
+//
+//	if ( pitch < 0 ){
+//		pitch =  (-1)*pitch;
+//	}
+//	if (pitch > 60){
+//		pitch = 60;
+//	}
+//
+//	pwmControl = pitch*65535/60;
+//	TIM2->CCR1 = pwmControl;
+//	//osSemaphoreRelease( spatialSmphrHandle );
+//	osDelay(10);
+
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
@@ -494,6 +528,32 @@ void StartLedBattTask(void *argument)
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartLedBattTask */
+}
+
+/* USER CODE BEGIN Header_StartIMUTask */
+/**
+* @brief Function implementing the imuTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartIMUTask */
+void StartIMUTask(void *argument)
+{
+  /* USER CODE BEGIN StartIMUTask */
+  /* Infinite loop */
+	bno055_assignI2C(&hi2c1);
+	bno055_setup();
+	bno055_setOperationModeNDOF();
+  for(;;)
+  {
+	//osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
+	spatialOrientation = bno055_getVectorEuler();
+	printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
+	//osSemaphoreRelease( spatialSmphrHandle );
+	osDelay(30);
+  }
+  osThreadTerminate(NULL);
+  /* USER CODE END StartIMUTask */
 }
 
 /**
@@ -549,4 +609,3 @@ void assert_failed(uint8_t *file, uint32_t line)
 }
 #endif /* USE_FULL_ASSERT */
 
-/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
