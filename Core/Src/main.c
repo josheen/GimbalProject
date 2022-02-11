@@ -490,7 +490,7 @@ void StartCtrlSysTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	osSemaphoreAcquire( spatialSmphrHandle, 10U );
+	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
 	pitch = spatialOrientation.y;
 
 	if ( pitch < 0 ){
@@ -545,7 +545,7 @@ void StartIMUTask(void *argument)
 	bno055_setOperationModeNDOF();
   for(;;)
   {
-	osSemaphoreAcquire( spatialSmphrHandle, 10U );
+	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
 	spatialOrientation = bno055_getVectorEuler();
 	//printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
 	osSemaphoreRelease( spatialSmphrHandle );
