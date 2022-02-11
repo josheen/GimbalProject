@@ -2,7 +2,7 @@
 FREERTOS.BinarySemaphores01=spatialSmphr,Dynamic,NULL
 FREERTOS.FootprintOK=true
 FREERTOS.IPParameters=Tasks01,FootprintOK,BinarySemaphores01
-FREERTOS.Tasks01=controlSysTask,24,128,StartCtrlSysTask,Default,NULL,Dynamic,NULL,NULL;ledBattTask,8,128,StartLedBattTask,Default,NULL,Dynamic,NULL,NULL;imuTask,8,128,StartIMUTask,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.Tasks01=controlSysTask,8,128,StartCtrlSysTask,Default,NULL,Dynamic,NULL,NULL;ledBattTask,9,128,StartLedBattTask,Default,NULL,Dynamic,NULL,NULL;imuTask,10,128,StartIMUTask,Default,NULL,Dynamic,NULL,NULL
 File.Version=6
 GPIO.groupedBy=Group By Peripherals
 I2C1.IPParameters=Timing

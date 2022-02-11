@@ -59,21 +59,21 @@ osThreadId_t controlSysTaskHandle;
 const osThreadAttr_t controlSysTask_attributes = {
   .name = "controlSysTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for ledBattTask */
 osThreadId_t ledBattTaskHandle;
 const osThreadAttr_t ledBattTask_attributes = {
   .name = "ledBattTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityLow1,
 };
 /* Definitions for imuTask */
 osThreadId_t imuTaskHandle;
 const osThreadAttr_t imuTask_attributes = {
   .name = "imuTask",
   .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityLow2,
 };
 /* Definitions for spatialSmphr */
 osSemaphoreId_t spatialSmphrHandle;
@@ -490,21 +490,20 @@ void StartCtrlSysTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	//osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
-//	pitch = spatialOrientation.y;
-//
-//	if ( pitch < 0 ){
-//		pitch =  (-1)*pitch;
-//	}
-//	if (pitch > 60){
-//		pitch = 60;
-//	}
-//
-//	pwmControl = pitch*65535/60;
-//	TIM2->CCR1 = pwmControl;
-//	//osSemaphoreRelease( spatialSmphrHandle );
-//	osDelay(10);
+	osSemaphoreAcquire( spatialSmphrHandle, 10U );
+	pitch = spatialOrientation.y;
 
+	if ( pitch < 0 ){
+		pitch =  (-1)*pitch;
+	}
+	if (pitch > 60){
+		pitch = 60;
+	}
+
+	pwmControl = pitch*65534/60;
+	TIM2->CCR1 = pwmControl;
+	osSemaphoreRelease( spatialSmphrHandle );
+	osDelay(10);
   }
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
@@ -546,10 +545,10 @@ void StartIMUTask(void *argument)
 	bno055_setOperationModeNDOF();
   for(;;)
   {
-	//osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
+	osSemaphoreAcquire( spatialSmphrHandle, 10U );
 	spatialOrientation = bno055_getVectorEuler();
-	printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
-	//osSemaphoreRelease( spatialSmphrHandle );
+	//printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
+	osSemaphoreRelease( spatialSmphrHandle );
 	osDelay(30);
   }
   osThreadTerminate(NULL);
