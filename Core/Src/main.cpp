@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "bno055_stm32.h"
+#include "PID.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -325,7 +326,7 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
+  htim2.Init.Prescaler = 3;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -471,6 +472,48 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+void yawPWM(float CCR_val){
+	int CCR = TIM2->CCR1+(int)CCR_val;
+
+	if (CCR <6553.5){
+		TIM2->CCR1 = 6553.5;
+	}
+	else if (CCR >20315.85){
+		TIM2->CCR1 = 20315.85;
+	}
+	else{
+		TIM2->CCR1 = CCR;
+	}
+}
+void pitchPWM(float CCR_val){
+	TIM2->CCR2 = TIM2->CCR2-(int)CCR_val;
+}
+void rollPWM(float CCR_val){
+	TIM2->CCR4 = TIM2->CCR4-(int)CCR_val;
+}
+
+float getYaw(){
+	float yaw;
+	if (spatialOrientation.x < 0){
+		yaw = spatialOrientation.x+360;
+	}
+	return yaw;
+}
+float getPitch(){
+	float pitch;
+	if (spatialOrientation.y < 0){
+		pitch = spatialOrientation.y+360;
+	}
+	return pitch;
+}
+float getRoll(){
+	float roll;
+	if (spatialOrientation.z < 0){
+		roll = spatialOrientation.z+360;
+	}
+	return roll;
+}
+
 
 /* USER CODE END 4 */
 
@@ -484,24 +527,31 @@ static void MX_GPIO_Init(void)
 void StartCtrlSysTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	float pitch;
-	int32_t pwmControl;
+	PIDController<float> yawCtrl(100,1,5, getYaw, yawPWM);//, pitchCtrl(1,1,1, getPitch, pitchPWM),rollCtrl(1,1,1, getRoll, rollPWM);
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+	osDelay(5000);
+	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
+	yawCtrl.setTarget(spatialOrientation.x);
+	osSemaphoreRelease( spatialSmphrHandle );
+	yawCtrl.registerTimeFunction(HAL_GetTick);
+
+
+//	pitchCtrl.setTarget(0);
+//	pitchCtrl.setOutputBounds(6553.5, 20315.85);
+//	pitchCtrl.registerTimeFunction(HAL_GetTick);
+
+//	rollCtrl.setTarget(0);
+//	rollCtrl.setOutputBounds(6553.5, 20315.85);
+//	rollCtrl.registerTimeFunction(HAL_GetTick);
+
   /* Infinite loop */
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
-	pitch = spatialOrientation.y;
-
-	if ( pitch < 0 ){
-		pitch =  (-1)*pitch;
-	}
-	if (pitch > 60){
-		pitch = 60;
-	}
-
-	pwmControl = pitch*65534/60;
-	TIM2->CCR1 = pwmControl;
+	yawCtrl.tick();
 	osSemaphoreRelease( spatialSmphrHandle );
 	osDelay(10);
   }
@@ -549,7 +599,7 @@ void StartIMUTask(void *argument)
 	spatialOrientation = bno055_getVectorEuler();
 	//printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
 	osSemaphoreRelease( spatialSmphrHandle );
-	osDelay(30);
+	osDelay(10);
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartIMUTask */
