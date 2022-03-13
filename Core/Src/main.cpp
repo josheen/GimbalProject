@@ -111,6 +111,7 @@ PUTCHAR_PROTOTYPE
 }
 
 bno055_vector_t spatialOrientation;
+int CCR1;
 /* USER CODE END 0 */
 
 /**
@@ -130,6 +131,7 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -145,6 +147,9 @@ int main(void)
   MX_TIM2_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  CCR1 = 13107;
+   TIM2->CCR1 = CCR1;
+   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
   /* USER CODE END 2 */
 
@@ -473,20 +478,21 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void yawPWM(float CCR_val){
-	int CCR = TIM2->CCR1+(int)CCR_val;
-
-	if (CCR <6553.5){
+	CCR1 = CCR1+(int)CCR_val;
+	if (CCR1 <6553.5){
 		TIM2->CCR1 = 6553.5;
 	}
-	else if (CCR >20315.85){
+	else if (CCR1 >20315.85){
 		TIM2->CCR1 = 20315.85;
 	}
 	else{
-		TIM2->CCR1 = CCR;
+		TIM2->CCR1 = CCR1;
 	}
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 }
 void pitchPWM(float CCR_val){
 	TIM2->CCR2 = TIM2->CCR2-(int)CCR_val;
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 }
 void rollPWM(float CCR_val){
 	TIM2->CCR4 = TIM2->CCR4-(int)CCR_val;
@@ -494,8 +500,11 @@ void rollPWM(float CCR_val){
 
 float getYaw(){
 	float yaw;
-	if (spatialOrientation.x < 0){
-		yaw = spatialOrientation.x+360;
+	if (spatialOrientation.x > 180){
+		yaw = spatialOrientation.x-360;
+	}
+	else{
+		yaw = spatialOrientation.x;
 	}
 	return yaw;
 }
@@ -527,15 +536,10 @@ float getRoll(){
 void StartCtrlSysTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	PIDController<float> yawCtrl(100,1,5, getYaw, yawPWM);//, pitchCtrl(1,1,1, getPitch, pitchPWM),rollCtrl(1,1,1, getRoll, rollPWM);
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	PIDController<float> yawCtrl(5,0.0001,0.01, getYaw, yawPWM);//, pitchCtrl(1,1,1, getPitch, pitchPWM),rollCtrl(1,1,1, getRoll, rollPWM);
 	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
-	osDelay(5000);
-	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
-	yawCtrl.setTarget(spatialOrientation.x);
-	osSemaphoreRelease( spatialSmphrHandle );
+	yawCtrl.setTarget(0);
 	yawCtrl.registerTimeFunction(HAL_GetTick);
 
 
