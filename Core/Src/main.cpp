@@ -41,6 +41,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define PWM_HIGH 20315.85
+#define PWM_LOW 6500
+#define PWM_MID 13107
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -82,6 +85,7 @@ const osSemaphoreAttr_t spatialSmphr_attributes = {
   .name = "spatialSmphr"
 };
 /* USER CODE BEGIN PV */
+osEventFlagsId_t EventGroup;
 
 /* USER CODE END PV */
 
@@ -111,7 +115,7 @@ PUTCHAR_PROTOTYPE
 }
 
 bno055_vector_t spatialOrientation;
-int CCR1;
+int CCR1,CCR2,CCR4;
 /* USER CODE END 0 */
 
 /**
@@ -147,9 +151,9 @@ int main(void)
   MX_TIM2_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  CCR1 = 13107;
-   TIM2->CCR1 = CCR1;
-   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  CCR1 = CCR2 = CCR4 = PWM_MID;
+  TIM2->CCR1 = CCR1; TIM2->CCR2 = CCR2; TIM2->CCR4 = CCR4;
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 
   /* USER CODE END 2 */
 
@@ -478,24 +482,54 @@ static void MX_GPIO_Init(void)
 
 /* USER CODE BEGIN 4 */
 void yawPWM(float CCR_val){
+
 	CCR1 = CCR1+(int)CCR_val;
-	if (CCR1 <6553.5){
-		TIM2->CCR1 = 6553.5;
+
+	if (CCR1 <PWM_LOW){
+		TIM2->CCR1 = PWM_LOW;
 	}
-	else if (CCR1 >20315.85){
-		TIM2->CCR1 = 20315.85;
+	else if (CCR1 >PWM_HIGH){
+		TIM2->CCR1 = PWM_HIGH;
 	}
 	else{
 		TIM2->CCR1 = CCR1;
 	}
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 }
+
 void pitchPWM(float CCR_val){
-	TIM2->CCR2 = TIM2->CCR2-(int)CCR_val;
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+
+	CCR2 = CCR2+(int)CCR_val;
+
+	if (CCR2 <PWM_LOW){
+		TIM2->CCR2 = PWM_LOW;
+	}
+	else if (CCR2 >PWM_HIGH){
+		TIM2->CCR2 = PWM_HIGH;
+	}
+	else{
+		TIM2->CCR2 = CCR2;
+	}
+
+	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
 }
+
 void rollPWM(float CCR_val){
-	TIM2->CCR4 = TIM2->CCR4-(int)CCR_val;
+
+	CCR4 = CCR4+(int)CCR_val;
+
+		if (CCR4 <PWM_LOW){
+			TIM2->CCR4 = PWM_LOW;
+		}
+		else if (CCR4 >PWM_HIGH){
+			TIM2->CCR4 = PWM_HIGH;
+		}
+		else{
+			TIM2->CCR4 = CCR4;
+		}
+
+		//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 }
 
 float getYaw(){
@@ -508,21 +542,18 @@ float getYaw(){
 	}
 	return yaw;
 }
+
 float getPitch(){
-	float pitch;
-	if (spatialOrientation.y < 0){
-		pitch = spatialOrientation.y+360;
-	}
-	return pitch;
-}
-float getRoll(){
-	float roll;
-	if (spatialOrientation.z < 0){
-		roll = spatialOrientation.z+360;
-	}
-	return roll;
+	return spatialOrientation.y;
 }
 
+float getRoll(){
+	return spatialOrientation.z;
+}
+
+void updatePitchSetPoint(float newSet){
+	//yawCtrl.setTarget(newSet);
+}
 
 /* USER CODE END 4 */
 
@@ -536,29 +567,41 @@ float getRoll(){
 void StartCtrlSysTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	PIDController<float> yawCtrl(5,0.0001,0.01, getYaw, yawPWM);//, pitchCtrl(1,1,1, getPitch, pitchPWM),rollCtrl(1,1,1, getRoll, rollPWM);
+	PIDController<float> yawCtrl(2.5,0.0001,0.01, getYaw, yawPWM), pitchCtrl(2.5,0.0001,0.01, getPitch, pitchPWM);//,rollCtrl(2.5,0.0001,0.001, getRoll, rollPWM);
 	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
-	yawCtrl.setTarget(0);
-	yawCtrl.registerTimeFunction(HAL_GetTick);
-
-
-//	pitchCtrl.setTarget(0);
-//	pitchCtrl.setOutputBounds(6553.5, 20315.85);
-//	pitchCtrl.registerTimeFunction(HAL_GetTick);
-
-//	rollCtrl.setTarget(0);
-//	rollCtrl.setOutputBounds(6553.5, 20315.85);
-//	rollCtrl.registerTimeFunction(HAL_GetTick);
-
+	yawCtrl.setTarget(0); yawCtrl.registerTimeFunction(HAL_GetTick);
+	pitchCtrl.setTarget(0); pitchCtrl.registerTimeFunction(HAL_GetTick);
+	//rollCtrl.setTarget(0); pitchCtrl.RegisterTimeFunction(HAL_GetTick);
   /* Infinite loop */
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
-	yawCtrl.tick();
+
+		yawCtrl.tick();
+		pitchCtrl.tick();
+		//rollCtrl.tick();
+
+//		if (polar){
+//			CCR2 = CCR2 + 30;
+//		}
+//		else{
+//			CCR2 = CCR2 - 30;
+//		}
+//
+//		if (CCR2>PWM_HIGH){
+//			polar = 0;
+//		}
+//		else if(CCR2 < PWM_LOW){
+//			polar = 1;
+//		}
+//
+//		TIM2->CCR2 = CCR2;
+
 	osSemaphoreRelease( spatialSmphrHandle );
-	osDelay(10);
+	osDelay(5);
   }
+
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
 }
@@ -603,7 +646,7 @@ void StartIMUTask(void *argument)
 	spatialOrientation = bno055_getVectorEuler();
 	//printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
 	osSemaphoreRelease( spatialSmphrHandle );
-	osDelay(10);
+	osDelay(5);
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartIMUTask */
