@@ -56,6 +56,7 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
 void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
+void setpointButtons();
 
 /* USER CODE END EFP */
 
@@ -64,16 +65,20 @@ void Error_Handler(void);
 #define MCO_GPIO_Port GPIOA
 #define VCP_TX_Pin GPIO_PIN_2
 #define VCP_TX_GPIO_Port GPIOA
-#define button_on_off_mode_Pin GPIO_PIN_4
-#define button_on_off_mode_GPIO_Port GPIOA
+#define on_off_mode_Pin GPIO_PIN_4
+#define on_off_mode_GPIO_Port GPIOA
 #define button_down_Pin GPIO_PIN_6
 #define button_down_GPIO_Port GPIOA
+#define button_down_EXTI_IRQn EXTI9_5_IRQn
 #define button_up_Pin GPIO_PIN_7
 #define button_up_GPIO_Port GPIOA
+#define button_up_EXTI_IRQn EXTI9_5_IRQn
 #define button_right_Pin GPIO_PIN_0
 #define button_right_GPIO_Port GPIOB
+#define button_right_EXTI_IRQn EXTI0_IRQn
 #define button_left_Pin GPIO_PIN_1
 #define button_left_GPIO_Port GPIOB
+#define button_left_EXTI_IRQn EXTI1_IRQn
 #define button_capture_Pin GPIO_PIN_8
 #define button_capture_GPIO_Port GPIOA
 #define temperature_Pin GPIO_PIN_11

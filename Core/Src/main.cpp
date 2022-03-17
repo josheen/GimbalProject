@@ -1,7 +1,7 @@
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
-  * @file           : main.c
+  * @file           : main.cpp
   * @brief          : Main program body
   ******************************************************************************
   * @attention
@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include "bno055_stm32.h"
 #include "PID.h"
+#include "stm32l4xx_it.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,7 +44,16 @@
 /* USER CODE BEGIN PD */
 #define PWM_HIGH 20315.85
 #define PWM_LOW 6500
-#define PWM_MID 13107
+#define PWM_MID 12000
+#define KP_y 3.1
+#define KD_y 0.0005
+#define KI_y 0.008
+#define KP_p 3.1
+#define KD_p 0.0005
+#define KI_p 0.008
+
+#define debounceDelay 10
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -79,13 +89,25 @@ const osThreadAttr_t imuTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow2,
 };
+/* Definitions for targetSetTask */
+osThreadId_t targetSetTaskHandle;
+const osThreadAttr_t targetSetTask_attributes = {
+  .name = "targetSetTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow4,
+};
 /* Definitions for spatialSmphr */
 osSemaphoreId_t spatialSmphrHandle;
 const osSemaphoreAttr_t spatialSmphr_attributes = {
   .name = "spatialSmphr"
 };
+/* Definitions for targetSmphr */
+osSemaphoreId_t targetSmphrHandle;
+const osSemaphoreAttr_t targetSmphr_attributes = {
+  .name = "targetSmphr"
+};
 /* USER CODE BEGIN PV */
-osEventFlagsId_t EventGroup;
+osEventFlagsId_t setPointButtonEvents;
 
 /* USER CODE END PV */
 
@@ -98,6 +120,7 @@ static void MX_I2C1_Init(void);
 void StartCtrlSysTask(void *argument);
 void StartLedBattTask(void *argument);
 void StartIMUTask(void *argument);
+void targetSetTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -114,8 +137,19 @@ PUTCHAR_PROTOTYPE
   return ch;
 }
 
+void yawPWM(float CCR_val);
+float getYaw();
+
+void pitchPWM(float CCR_val);
+float getPitch();
+
+void rollPWM(float CCR_val);
+float getRoll();
+
 bno055_vector_t spatialOrientation;
 int CCR1,CCR2,CCR4;
+PIDController<float> yawCtrl(KP_y,KD_y,KI_y, getYaw, yawPWM), pitchCtrl(KP_p,KD_p,KI_p, getPitch, pitchPWM);//,rollCtrl(2.5,0.0001,0.001, getRoll, rollPWM);
+float setpointYaw, setpointPitch, setpointRoll;
 /* USER CODE END 0 */
 
 /**
@@ -151,9 +185,7 @@ int main(void)
   MX_TIM2_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  CCR1 = CCR2 = CCR4 = PWM_MID;
-  TIM2->CCR1 = CCR1; TIM2->CCR2 = CCR2; TIM2->CCR4 = CCR4;
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
+
 
   /* USER CODE END 2 */
 
@@ -168,6 +200,9 @@ int main(void)
   /* creation of spatialSmphr */
   spatialSmphrHandle = osSemaphoreNew(1, 1, &spatialSmphr_attributes);
 
+  /* creation of targetSemphr */
+  targetSmphrHandle = osSemaphoreNew(1, 1, &targetSmphr_attributes);
+
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
@@ -179,7 +214,7 @@ int main(void)
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
   /* USER CODE END RTOS_QUEUES */
-
+  setpointYaw = setpointPitch = setpointRoll = 0;
   /* Create the thread(s) */
   /* creation of controlSysTask */
   controlSysTaskHandle = osThreadNew(StartCtrlSysTask, NULL, &controlSysTask_attributes);
@@ -190,8 +225,13 @@ int main(void)
   /* creation of imuTask */
   imuTaskHandle = osThreadNew(StartIMUTask, NULL, &imuTask_attributes);
 
+  /* creation of downButtonTask */
+  targetSetTaskHandle = osThreadNew(targetSetTask, NULL, &targetSetTask_attributes);
+
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
+  setPointButtonEvents = osEventFlagsNew( NULL );
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -424,7 +464,7 @@ static void MX_USART2_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
+ GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
@@ -438,17 +478,23 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_3_GPIO_Port, LED_3_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : button_on_off_mode_Pin button_down_Pin button_up_Pin button_capture_Pin */
-  GPIO_InitStruct.Pin = button_on_off_mode_Pin|button_down_Pin|button_up_Pin|button_capture_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  /*Configure GPIO pins : PA4 button_down_Pin button_up_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_4|button_down_Pin|button_up_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : button_right_Pin button_left_Pin */
   GPIO_InitStruct.Pin = button_right_Pin|button_left_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : button_capture_Pin */
+  GPIO_InitStruct.Pin = button_capture_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(button_capture_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : temperature_Pin batt_voltage_Pin */
   GPIO_InitStruct.Pin = temperature_Pin|batt_voltage_Pin;
@@ -478,14 +524,25 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_3_GPIO_Port, &GPIO_InitStruct);
 
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+
 }
 
 /* USER CODE BEGIN 4 */
+
 void yawPWM(float CCR_val){
 
 	CCR1 = CCR1+(int)CCR_val;
 
-	if (CCR1 <PWM_LOW){
+	if (CCR1 < PWM_LOW){
 		TIM2->CCR1 = PWM_LOW;
 	}
 	else if (CCR1 >PWM_HIGH){
@@ -552,9 +609,16 @@ float getRoll(){
 }
 
 void updatePitchSetPoint(float newSet){
-	//yawCtrl.setTarget(newSet);
+	pitchCtrl.setTarget(newSet);
 }
 
+
+
+void setpointButtons(){
+
+	osEventFlagsSet(setPointButtonEvents, 0x50);
+
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartCtrlSysTask */
@@ -567,19 +631,23 @@ void updatePitchSetPoint(float newSet){
 void StartCtrlSysTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-	PIDController<float> yawCtrl(2.5,0.0001,0.01, getYaw, yawPWM), pitchCtrl(2.5,0.0001,0.01, getPitch, pitchPWM);//,rollCtrl(2.5,0.0001,0.001, getRoll, rollPWM);
+
+	CCR1 = CCR2 = CCR4 = PWM_MID;
+	TIM2->CCR1 = CCR1; TIM2->CCR2 = CCR2; TIM2->CCR4 = CCR4;
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
-	yawCtrl.setTarget(0); yawCtrl.registerTimeFunction(HAL_GetTick);
-	pitchCtrl.setTarget(0); pitchCtrl.registerTimeFunction(HAL_GetTick);
-	//rollCtrl.setTarget(0); pitchCtrl.RegisterTimeFunction(HAL_GetTick);
+	yawCtrl.setTarget(setpointYaw); yawCtrl.registerTimeFunction(HAL_GetTick);
+	pitchCtrl.setTarget(setpointPitch); pitchCtrl.registerTimeFunction(HAL_GetTick);
+	//rollCtrl.setTarget(setpointRoll); pitchCtrl.RegisterTimeFunction(HAL_GetTick);
   /* Infinite loop */
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
+	osSemaphoreAcquire( targetSmphrHandle, osWaitForever );
 
-		yawCtrl.tick();
-		pitchCtrl.tick();
+		//yawCtrl.tick();
+		//pitchCtrl.tick();
 		//rollCtrl.tick();
 
 //		if (polar){
@@ -597,9 +665,9 @@ void StartCtrlSysTask(void *argument)
 //		}
 //
 //		TIM2->CCR2 = CCR2;
-
 	osSemaphoreRelease( spatialSmphrHandle );
-	osDelay(5);
+	osSemaphoreRelease( targetSmphrHandle );
+	osDelay(3);
   }
 
   osThreadTerminate(NULL);
@@ -643,13 +711,48 @@ void StartIMUTask(void *argument)
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
+	osSemaphoreRelease( targetSmphrHandle );
 	spatialOrientation = bno055_getVectorEuler();
 	//printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
 	osSemaphoreRelease( spatialSmphrHandle );
-	osDelay(5);
+	osDelay(3);
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartIMUTask */
+}
+
+/* USER CODE BEGIN Header_downButton */
+/**
+* @brief Function implementing the downButtonTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_downButton */
+void targetSetTask(void *argument)
+{
+  /* USER CODE BEGIN downButton */
+  /* Infinite loop */
+  for(;;)
+  {
+	osEventFlagsWait(setPointButtonEvents,0x50, osFlagsWaitAll, osWaitForever);
+	osSemaphoreAcquire( targetSmphrHandle, osWaitForever );
+	//setpointPitch = setpointPitch+3;
+	//pitchCtrl.setTarget(setpointPitch);
+
+	if (!HAL_GPIO_ReadPin (GPIOA,GPIO_PIN_6)){
+		CCR2 += 1000;
+			TIM2->CCR2 = CCR2;
+
+	}
+		if (!HAL_GPIO_ReadPin (GPIOA,GPIO_PIN_7)){
+			CCR2 -= 1000;
+			TIM2->CCR2 = CCR2;
+	}
+	osSemaphoreRelease( targetSmphrHandle );
+    osEventFlagsClear(setPointButtonEvents, 0x50);
+	osDelay(debounceDelay);
+  }
+  /* USER CODE END downButton */
 }
 
 /**
