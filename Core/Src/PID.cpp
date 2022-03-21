@@ -27,7 +27,7 @@ PIDController<T>::PIDController(double p, double i, double d, T (*pidSource)(), 
   currentTime = 0L;
   lastTime = 0L;
   integralCumulation = 0;
-  maxCumulation = 30000;
+  maxCumulation = 15000;
   cycleDerivative = 0;
 
   inputBounded = false;

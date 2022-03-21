@@ -52,8 +52,17 @@
 #define KD_p 0.0005
 #define KI_p 0.008
 
-#define debounceDelay 10
-
+#define debounceDelay 150
+#define OFF_STATE 0
+#define ON_STATE 1
+#define UNIQUE_STATE 2
+#define OFF_NUM_THREADS 4
+#define ON_NUM_THREADS 3
+#define UNIQUE_NUM_THREADS1 3
+#define UNIQUE_NUM_THREADS2 1
+#define CONTROL_FREQ 3 
+#define IMU_FREQ 3
+#define UNIQUE_FREQ 10
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -106,8 +115,28 @@ osSemaphoreId_t targetSmphrHandle;
 const osSemaphoreAttr_t targetSmphr_attributes = {
   .name = "targetSmphr"
 };
+/* Definitions for targetSmphr */
+osSemaphoreId_t stateSmphrHandle;
+const osSemaphoreAttr_t stateSmphr_attributes = {
+  .name = "stateSmphr"
+};
+/* Definitions for stateTask */
+osThreadId_t stateTaskHandle;
+const osThreadAttr_t stateTask_attributes = {
+  .name = "stateTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow5,
+};
+/* Definitions for uniqueMovement */
+osThreadId_t uniqueMovementHandle;
+const osThreadAttr_t uniqueMovement_attributes = {
+  .name = "uniqueMovement",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 osEventFlagsId_t setPointButtonEvents;
+osEventFlagsId_t stateMachineEvents;
 
 /* USER CODE END PV */
 
@@ -120,10 +149,12 @@ static void MX_I2C1_Init(void);
 void StartCtrlSysTask(void *argument);
 void StartLedBattTask(void *argument);
 void StartIMUTask(void *argument);
-void targetSetTask(void *argument);
+void StartTargetSetTask(void *argument);
+void StartStateMachine(void *argument);
+void StartUniqueMovement(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+void transitionOFF();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -150,6 +181,11 @@ bno055_vector_t spatialOrientation;
 int CCR1,CCR2,CCR4;
 PIDController<float> yawCtrl(KP_y,KD_y,KI_y, getYaw, yawPWM), pitchCtrl(KP_p,KD_p,KI_p, getPitch, pitchPWM);//,rollCtrl(2.5,0.0001,0.001, getRoll, rollPWM);
 float setpointYaw, setpointPitch, setpointRoll;
+int state = OFF_STATE;
+
+
+osThreadId_t OFF_threads[OFF_NUM_THREADS];
+osThreadId_t UNIQUE_threads[UNIQUE_NUM_THREADS1] = {  controlSysTaskHandle, targetSetTaskHandle, imuTaskHandle };
 /* USER CODE END 0 */
 
 /**
@@ -200,9 +236,11 @@ int main(void)
   /* creation of spatialSmphr */
   spatialSmphrHandle = osSemaphoreNew(1, 1, &spatialSmphr_attributes);
 
-  /* creation of targetSemphr */
+  /* creation of targetSmphr */
   targetSmphrHandle = osSemaphoreNew(1, 1, &targetSmphr_attributes);
 
+  /* creation of stateSmphr */
+  stateSmphrHandle = osSemaphoreNew(1,1, &stateSmphr_attributes);
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
   /* USER CODE END RTOS_SEMAPHORES */
@@ -216,22 +254,29 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
   setpointYaw = setpointPitch = setpointRoll = 0;
   /* Create the thread(s) */
+
+  /* creation of stateTask */
+  stateTaskHandle = osThreadNew(StartStateMachine, NULL, &stateTask_attributes);
+
   /* creation of controlSysTask */
-  controlSysTaskHandle = osThreadNew(StartCtrlSysTask, NULL, &controlSysTask_attributes);
+  //controlSysTaskHandle = osThreadNew(StartCtrlSysTask, NULL, &controlSysTask_attributes);
 
   /* creation of ledBattTask */
   ledBattTaskHandle = osThreadNew(StartLedBattTask, NULL, &ledBattTask_attributes);
 
   /* creation of imuTask */
-  imuTaskHandle = osThreadNew(StartIMUTask, NULL, &imuTask_attributes);
+  //imuTaskHandle = osThreadNew(StartIMUTask, NULL, &imuTask_attributes);
 
   /* creation of downButtonTask */
-  targetSetTaskHandle = osThreadNew(targetSetTask, NULL, &targetSetTask_attributes);
-
+  //targetSetTaskHandle = osThreadNew(StartTargetSetTask, NULL, &targetSetTask_attributes);
+  
+  /* creation of uniqueMovement */
+  //uniqueMovementHandle = osThreadNew(StartUniqueMovement, NULL, &uniqueMovement_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   setPointButtonEvents = osEventFlagsNew( NULL );
+  stateMachineEvents  = osEventFlagsNew( NULL );
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -478,8 +523,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_3_GPIO_Port, LED_3_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : PA4 button_down_Pin button_up_Pin */
-  GPIO_InitStruct.Pin = GPIO_PIN_4|button_down_Pin|button_up_Pin;
+  /*Configure GPIO pins : on_off_mode_Pin button_down_Pin button_up_Pin */
+  GPIO_InitStruct.Pin = on_off_mode_Pin|button_down_Pin|button_up_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -487,12 +532,12 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pins : button_right_Pin button_left_Pin */
   GPIO_InitStruct.Pin = button_right_Pin|button_left_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : button_capture_Pin */
   GPIO_InitStruct.Pin = button_capture_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(button_capture_GPIO_Port, &GPIO_InitStruct);
 
@@ -524,15 +569,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_3_GPIO_Port, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
 
   HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
+  HAL_NVIC_SetPriority(EXTI4_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI4_IRQn);
+
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-
 
 }
 
@@ -616,7 +664,40 @@ void updatePitchSetPoint(float newSet){
 
 void setpointButtons(){
 
-	osEventFlagsSet(setPointButtonEvents, 0x50);
+	osEventFlagsSet( setPointButtonEvents, 0x50 );
+
+}
+
+void modeChangeButton(){
+
+  osEventFlagsSet( stateMachineEvents, 0x69 );
+
+}
+
+
+void transitionOFF(){
+for(int i = 0; i < OFF_NUM_THREADS; ++i){
+    if ( !(osThreadGetState(OFF_threads[i]) == osThreadTerminated) ){
+     osThreadTerminate(OFF_threads[i]);
+    }
+  }
+}
+
+void transitionON(){
+  UNIQUE_threads[0] = osThreadNew(StartCtrlSysTask, NULL, &controlSysTask_attributes);
+  UNIQUE_threads[1] = osThreadNew(StartIMUTask, NULL, &imuTask_attributes);
+  UNIQUE_threads[2] = osThreadNew(StartTargetSetTask, NULL, &targetSetTask_attributes);
+
+}
+
+void transitionUNIQUE(){
+  for (int i = 0; i < UNIQUE_NUM_THREADS1; ++i){
+    if ( !(osThreadGetState(UNIQUE_threads[i]) == osThreadTerminated) ){
+      osThreadTerminate(UNIQUE_threads[i]);
+    }
+  }
+  OFF_threads[0] = osThreadNew(StartUniqueMovement, NULL, &uniqueMovement_attributes);
+
 
 }
 /* USER CODE END 4 */
@@ -638,36 +719,35 @@ void StartCtrlSysTask(void *argument)
 	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
 	yawCtrl.setTarget(setpointYaw); yawCtrl.registerTimeFunction(HAL_GetTick);
+
 	pitchCtrl.setTarget(setpointPitch); pitchCtrl.registerTimeFunction(HAL_GetTick);
+
 	//rollCtrl.setTarget(setpointRoll); pitchCtrl.RegisterTimeFunction(HAL_GetTick);
+
   /* Infinite loop */
+  int direction = 1;
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
 	osSemaphoreAcquire( targetSmphrHandle, osWaitForever );
 
-		//yawCtrl.tick();
-		//pitchCtrl.tick();
-		//rollCtrl.tick();
+	if (direction){
+	      CCR2 += 100;
+	    }
+	    else{
+	      CCR2 -= 100;
+	    }
 
-//		if (polar){
-//			CCR2 = CCR2 + 30;
-//		}
-//		else{
-//			CCR2 = CCR2 - 30;
-//		}
-//
-//		if (CCR2>PWM_HIGH){
-//			polar = 0;
-//		}
-//		else if(CCR2 < PWM_LOW){
-//			polar = 1;
-//		}
-//
-//		TIM2->CCR2 = CCR2;
+	    if (CCR2 > PWM_HIGH){
+	      direction = 0;
+	    }
+	    else if (CCR2 < PWM_LOW){
+	      direction = 1;
+	    }
+    TIM2->CCR2 = CCR2;
 	osSemaphoreRelease( spatialSmphrHandle );
 	osSemaphoreRelease( targetSmphrHandle );
-	osDelay(3);
+	osDelay(CONTROL_FREQ);
   }
 
   osThreadTerminate(NULL);
@@ -685,10 +765,21 @@ void StartLedBattTask(void *argument)
 {
   /* USER CODE BEGIN StartLedBattTask */
   /* Infinite loop */
-  for(;;)
-  {
-	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
-    osDelay(800);
+  for(;;){
+
+   osSemaphoreAcquire( stateSmphrHandle, osWaitForever );
+
+	  if (state == OFF_STATE){
+			HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		  osSemaphoreRelease( stateSmphrHandle );
+		  osDelay(1000);
+	  }
+	  else if (state == ON_STATE || state == UNIQUE_STATE || state == -1){
+		  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		  osSemaphoreRelease( stateSmphrHandle );
+		  osDelay(100);
+	  }
+
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartLedBattTask */
@@ -705,33 +796,36 @@ void StartIMUTask(void *argument)
 {
   /* USER CODE BEGIN StartIMUTask */
   /* Infinite loop */
-	bno055_assignI2C(&hi2c1);
-	bno055_setup();
-	bno055_setOperationModeNDOF();
+
+	//bno055_assignI2C(&hi2c1);
+	//bno055_reset();
+	//bno055_setup();
+	//bno055_setOperationModeNDOF();
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
 	osSemaphoreRelease( targetSmphrHandle );
-	spatialOrientation = bno055_getVectorEuler();
+	//spatialOrientation = bno055_getVectorEuler();
 	//printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
 	osSemaphoreRelease( spatialSmphrHandle );
-	osDelay(3);
+	osDelay(IMU_FREQ);
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartIMUTask */
 }
 
-/* USER CODE BEGIN Header_downButton */
+/* USER CODE BEGIN Header_StartTargetSetTask */
 /**
 * @brief Function implementing the downButtonTask thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_downButton */
-void targetSetTask(void *argument)
+/* USER CODE END Header_StartTargetSetTask */
+void StartTargetSetTask(void *argument)
 {
-  /* USER CODE BEGIN downButton */
+  /* USER CODE BEGIN StartTargetSetTask */
   /* Infinite loop */
+	//TODO: Change timer values to actual set-point values when the prototype is put together
   for(;;)
   {
 	osEventFlagsWait(setPointButtonEvents,0x50, osFlagsWaitAll, osWaitForever);
@@ -744,15 +838,102 @@ void targetSetTask(void *argument)
 			TIM2->CCR2 = CCR2;
 
 	}
-		if (!HAL_GPIO_ReadPin (GPIOA,GPIO_PIN_7)){
+	else if (!HAL_GPIO_ReadPin (GPIOB,GPIO_PIN_7)){
 			CCR2 -= 1000;
 			TIM2->CCR2 = CCR2;
+	}
+  else if (!HAL_GPIO_ReadPin (GPIOB,GPIO_PIN_1)){
+			CCR1 -= 1000;
+			TIM2->CCR1 = CCR1;
+	}
+  else if (!HAL_GPIO_ReadPin (GPIOA,GPIO_PIN_0)){
+			CCR1 -= 1000;
+			TIM2->CCR1 = CCR1;
 	}
 	osSemaphoreRelease( targetSmphrHandle );
     osEventFlagsClear(setPointButtonEvents, 0x50);
 	osDelay(debounceDelay);
   }
+    osThreadTerminate(NULL);
   /* USER CODE END downButton */
+}
+
+/* USER CODE BEGIN Header_StartStateMachine */
+/**
+* @brief Function implementing the stateTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartStateMachine */
+void StartStateMachine(void *argument)
+{
+  /* USER CODE BEGIN StartStateMachine */
+
+//   #define OFF_STATE 0
+// #define ON_STATE 1
+// #define UNIQUE_STATE 2
+  /* Infinite loop */
+  for(;;)
+  {
+    osEventFlagsWait(stateMachineEvents,0x69, osFlagsWaitAll, osWaitForever);
+    state++; //increment the state :3
+    switch(state){
+      case OFF_STATE:
+      transitionOFF();
+      break; 
+      case ON_STATE:
+      transitionON();
+      break;
+      case UNIQUE_STATE:
+      transitionUNIQUE();
+      state = -1;
+      break;
+      default:
+      state = OFF_STATE;
+    }
+
+
+    osEventFlagsClear(stateMachineEvents, 0x69);
+    osDelay( debounceDelay );
+  }
+  osThreadTerminate(NULL);
+  /* USER CODE END StartStateMachine */
+}
+
+
+/* USER CODE BEGIN Header_StartUniqueMovement */
+/**
+* @brief Function implementing the uniqueMovement thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUniqueMovement */
+void StartUniqueMovement(void *argument)
+{
+  /* USER CODE BEGIN StartUniqueMovement */
+  /* Infinite loop */
+  CCR2 = PWM_MID;
+  int direction = 1;
+  for(;;)
+  {
+    if (direction){
+      CCR2 += 30;
+    }
+    else{
+      CCR2 -= 30;
+    }
+
+    if (CCR2 > PWM_HIGH){
+      direction = 0;
+    }
+    else if (CCR2 < PWM_LOW){
+      direction = 1;
+    }
+    TIM2->CCR2 = CCR2;
+    osDelay(UNIQUE_FREQ);
+  }
+  osThreadTerminate(NULL);
+  /* USER CODE END StartUniqueMovement */
 }
 
 /**

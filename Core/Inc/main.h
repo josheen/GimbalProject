@@ -57,7 +57,7 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN EFP */
 void setpointButtons();
-
+void modeChangeButton();
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
@@ -67,6 +67,7 @@ void setpointButtons();
 #define VCP_TX_GPIO_Port GPIOA
 #define on_off_mode_Pin GPIO_PIN_4
 #define on_off_mode_GPIO_Port GPIOA
+#define on_off_mode_EXTI_IRQn EXTI4_IRQn
 #define button_down_Pin GPIO_PIN_6
 #define button_down_GPIO_Port GPIOA
 #define button_down_EXTI_IRQn EXTI9_5_IRQn
@@ -81,6 +82,7 @@ void setpointButtons();
 #define button_left_EXTI_IRQn EXTI1_IRQn
 #define button_capture_Pin GPIO_PIN_8
 #define button_capture_GPIO_Port GPIOA
+#define button_capture_EXTI_IRQn EXTI9_5_IRQn
 #define temperature_Pin GPIO_PIN_11
 #define temperature_GPIO_Port GPIOA
 #define batt_voltage_Pin GPIO_PIN_12
