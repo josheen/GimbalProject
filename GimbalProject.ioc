@@ -1,8 +1,8 @@
 #MicroXplorer Configuration settings - do not modify
 FREERTOS.BinarySemaphores01=spatialSmphr,Dynamic,NULL;targetSmphr,Dynamic,NULL
-FREERTOS.FootprintOK=false
+FREERTOS.FootprintOK=true
 FREERTOS.IPParameters=Tasks01,FootprintOK,BinarySemaphores01
-FREERTOS.Tasks01=controlSysTask,8,128,StartCtrlSysTask,Default,NULL,Dynamic,NULL,NULL;ledBattTask,9,128,StartLedBattTask,Default,NULL,Dynamic,NULL,NULL;imuTask,10,128,StartIMUTask,Default,NULL,Dynamic,NULL,NULL;targetSetTask,12,128,StartTargetSetTask,Default,NULL,Dynamic,NULL,NULL;stateTask,13,128,StartStateMachine,Default,NULL,Dynamic,NULL,NULL;uniqueMovement,8,128,StartUniqueMovement,Default,NULL,Dynamic,NULL,NULL
+FREERTOS.Tasks01=controlSysTask,8,128,StartCtrlSysTask,Default,NULL,Static,controlSysTaskBuffer,controlSysTaskControlBlock;ledBattTask,9,128,StartLedBattTask,Default,NULL,Static,ledBattTaskBuffer,ledBattTaskControlBlock;imuTask,10,128,StartIMUTask,Default,NULL,Static,imuTaskBuffer,imuTaskControlBlock;targetSetTask,12,128,StartTargetSetTask,Default,NULL,Static,targetSetTaskBuffer,targetSetTaskControlBlock;stateTask,13,128,StartStateMachine,Default,NULL,Static,stateTaskBuffer,stateTaskControlBlock;uniqueMovement,8,128,StartUniqueMovement,Default,NULL,Static,uniqueMovementBuffer,uniqueMovementControlBlock
 File.Version=6
 GPIO.groupedBy=Group By Peripherals
 I2C1.IPParameters=Timing

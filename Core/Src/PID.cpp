@@ -27,7 +27,7 @@ PIDController<T>::PIDController(double p, double i, double d, T (*pidSource)(), 
   currentTime = 0L;
   lastTime = 0L;
   integralCumulation = 0;
-  maxCumulation = 15000;
+  maxCumulation = 8000;
   cycleDerivative = 0;
 
   inputBounded = false;
@@ -640,7 +640,4 @@ void PIDController<T>::registerTimeFunction(unsigned long (*getSystemTime)())
  * have this class instantiated with.  Basically, it prepares the program to
  * make a PIDController of any of these defined types.
  */
-template class PIDController<int>;
-template class PIDController<long>;
 template class PIDController<float>;
-template class PIDController<double>;

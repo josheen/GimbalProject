@@ -21,6 +21,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32l4xx_it.h"
+#include "eventHandler.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -37,6 +38,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define debounceDelay 50
 
 /* USER CODE END PM */
 
@@ -167,6 +169,7 @@ void EXTI0_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI0_IRQn 0 */
   setpointButtons();
+  //osDelay(debounceDelay);
   /* USER CODE END EXTI0_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(MCO_Pin);
   /* USER CODE BEGIN EXTI0_IRQn 1 */
@@ -181,6 +184,7 @@ void EXTI1_IRQHandler(void)
 {
   /* USER CODE BEGIN EXTI1_IRQn 0 */
    setpointButtons();
+   //osDelay(debounceDelay);
   /* USER CODE END EXTI1_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(button_left_Pin);
   /* USER CODE BEGIN EXTI1_IRQn 1 */

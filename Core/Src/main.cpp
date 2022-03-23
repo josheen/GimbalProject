@@ -27,6 +27,7 @@
 #include "bno055_stm32.h"
 #include "PID.h"
 #include "stm32l4xx_it.h"
+#include "eventHandler.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -45,14 +46,19 @@
 #define PWM_HIGH 20315.85
 #define PWM_LOW 6500
 #define PWM_MID 12000
-#define KP_y 3.1
-#define KD_y 0.0005
+#define PWM_HIGH_Y 19000
+#define PWM_LOW_Y 7000
+#define KP_y 1.9
+#define KD_y 0.0008
 #define KI_y 0.008
 #define KP_p 3.1
 #define KD_p 0.0005
 #define KI_p 0.008
+#define KP_r 3.1
+#define KD_r 0.0005
+#define KI_r 0.008
 
-#define debounceDelay 150
+#define debounceDelay 50
 #define OFF_STATE 0
 #define ON_STATE 1
 #define UNIQUE_STATE 2
@@ -60,7 +66,7 @@
 #define ON_NUM_THREADS 3
 #define UNIQUE_NUM_THREADS1 3
 #define UNIQUE_NUM_THREADS2 1
-#define CONTROL_FREQ 3 
+#define CONTROL_FREQ 3
 #define IMU_FREQ 3
 #define UNIQUE_FREQ 10
 /* USER CODE END PD */
@@ -77,33 +83,55 @@ TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
 
+typedef StaticTask_t osStaticThreadDef_t;
+
 /* Definitions for controlSysTask */
 osThreadId_t controlSysTaskHandle;
+uint32_t controlSysTaskBuffer[ 128 ];
+osStaticThreadDef_t controlSysTaskControlBlock;
 const osThreadAttr_t controlSysTask_attributes = {
   .name = "controlSysTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .cb_mem = &controlSysTaskControlBlock,
+  .cb_size = sizeof(controlSysTaskControlBlock),
+  .stack_mem = &controlSysTaskBuffer[0],
+  .stack_size = sizeof(controlSysTaskBuffer),
+  .priority = (osPriority_t) osPriorityLow2,
 };
 /* Definitions for ledBattTask */
 osThreadId_t ledBattTaskHandle;
+uint32_t ledBattTaskBuffer[ 128 ];
+osStaticThreadDef_t ledBattTaskControlBlock;
 const osThreadAttr_t ledBattTask_attributes = {
   .name = "ledBattTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow1,
+  .cb_mem = &ledBattTaskControlBlock,
+  .cb_size = sizeof(ledBattTaskControlBlock),
+  .stack_mem = &ledBattTaskBuffer[0],
+  .stack_size = sizeof(ledBattTaskBuffer),
+  .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for imuTask */
 osThreadId_t imuTaskHandle;
+uint32_t imuTaskBuffer[ 128 ];
+osStaticThreadDef_t imuTaskControlBlock;
 const osThreadAttr_t imuTask_attributes = {
   .name = "imuTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow2,
+  .cb_mem = &imuTaskControlBlock,
+  .cb_size = sizeof(imuTaskControlBlock),
+  .stack_mem = &imuTaskBuffer[0],
+  .stack_size = sizeof(imuTaskBuffer),
+  .priority = (osPriority_t) osPriorityLow3,
 };
 /* Definitions for targetSetTask */
 osThreadId_t targetSetTaskHandle;
+uint32_t targetSetTaskBuffer[ 128 ];
+osStaticThreadDef_t targetSetTaskControlBlock;
 const osThreadAttr_t targetSetTask_attributes = {
   .name = "targetSetTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow4,
+  .cb_mem = &targetSetTaskControlBlock,
+  .cb_size = sizeof(targetSetTaskControlBlock),
+  .stack_mem = &targetSetTaskBuffer[0],
+  .stack_size = sizeof(targetSetTaskBuffer),
+  .priority = (osPriority_t) osPriorityLow1,
 };
 /* Definitions for spatialSmphr */
 osSemaphoreId_t spatialSmphrHandle;
@@ -122,21 +150,29 @@ const osSemaphoreAttr_t stateSmphr_attributes = {
 };
 /* Definitions for stateTask */
 osThreadId_t stateTaskHandle;
+uint32_t stateTaskBuffer[ 128 ];
+osStaticThreadDef_t stateTaskControlBlock;
 const osThreadAttr_t stateTask_attributes = {
   .name = "stateTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityLow5,
+  .cb_mem = &stateTaskControlBlock,
+  .cb_size = sizeof(stateTaskControlBlock),
+  .stack_mem = &stateTaskBuffer[0],
+  .stack_size = sizeof(stateTaskBuffer),
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for uniqueMovement */
 osThreadId_t uniqueMovementHandle;
+uint32_t uniqueMovementBuffer[ 128 ];
+osStaticThreadDef_t uniqueMovementControlBlock;
 const osThreadAttr_t uniqueMovement_attributes = {
   .name = "uniqueMovement",
-  .stack_size = 128 * 4,
+  .cb_mem = &uniqueMovementControlBlock,
+  .cb_size = sizeof(uniqueMovementControlBlock),
+  .stack_mem = &uniqueMovementBuffer[0],
+  .stack_size = sizeof(uniqueMovementBuffer),
   .priority = (osPriority_t) osPriorityLow,
 };
 /* USER CODE BEGIN PV */
-osEventFlagsId_t setPointButtonEvents;
-osEventFlagsId_t stateMachineEvents;
 
 /* USER CODE END PV */
 
@@ -179,13 +215,13 @@ float getRoll();
 
 bno055_vector_t spatialOrientation;
 int CCR1,CCR2,CCR4;
-PIDController<float> yawCtrl(KP_y,KD_y,KI_y, getYaw, yawPWM), pitchCtrl(KP_p,KD_p,KI_p, getPitch, pitchPWM);//,rollCtrl(2.5,0.0001,0.001, getRoll, rollPWM);
+PIDController<float> yawCtrl(KP_y,KD_y,KI_y, getYaw, yawPWM), pitchCtrl(KP_p,KD_p,KI_p, getPitch, pitchPWM),rollCtrl(KP_r,KD_r,KI_r, getRoll, rollPWM);
 float setpointYaw, setpointPitch, setpointRoll;
 int state = OFF_STATE;
 
 
 osThreadId_t OFF_threads[OFF_NUM_THREADS];
-osThreadId_t UNIQUE_threads[UNIQUE_NUM_THREADS1] = {  controlSysTaskHandle, targetSetTaskHandle, imuTaskHandle };
+osThreadId_t UNIQUE_threads[UNIQUE_NUM_THREADS1];
 /* USER CODE END 0 */
 
 /**
@@ -588,13 +624,13 @@ static void MX_GPIO_Init(void)
 
 void yawPWM(float CCR_val){
 
-	CCR1 = CCR1+(int)CCR_val;
+	CCR1 += (int)CCR_val;
 
-	if (CCR1 < PWM_LOW){
-		TIM2->CCR1 = PWM_LOW;
+	if (CCR1 < PWM_LOW_Y){
+		TIM2->CCR1 = PWM_LOW_Y;
 	}
-	else if (CCR1 >PWM_HIGH){
-		TIM2->CCR1 = PWM_HIGH;
+	else if (CCR1 >PWM_HIGH_Y){
+		TIM2->CCR1 = PWM_HIGH_Y;
 	}
 	else{
 		TIM2->CCR1 = CCR1;
@@ -605,7 +641,7 @@ void yawPWM(float CCR_val){
 
 void pitchPWM(float CCR_val){
 
-	CCR2 = CCR2+(int)CCR_val;
+	CCR2 += (int)CCR_val;
 
 	if (CCR2 <PWM_LOW){
 		TIM2->CCR2 = PWM_LOW;
@@ -622,7 +658,7 @@ void pitchPWM(float CCR_val){
 
 void rollPWM(float CCR_val){
 
-	CCR4 = CCR4+(int)CCR_val;
+	CCR4 -= (int)CCR_val;
 
 		if (CCR4 <PWM_LOW){
 			TIM2->CCR4 = PWM_LOW;
@@ -661,20 +697,6 @@ void updatePitchSetPoint(float newSet){
 }
 
 
-
-void setpointButtons(){
-
-	osEventFlagsSet( setPointButtonEvents, 0x50 );
-
-}
-
-void modeChangeButton(){
-
-  osEventFlagsSet( stateMachineEvents, 0x69 );
-
-}
-
-
 void transitionOFF(){
 for(int i = 0; i < OFF_NUM_THREADS; ++i){
     if ( !(osThreadGetState(OFF_threads[i]) == osThreadTerminated) ){
@@ -698,7 +720,23 @@ void transitionUNIQUE(){
   }
   OFF_threads[0] = osThreadNew(StartUniqueMovement, NULL, &uniqueMovement_attributes);
 
+}
 
+void yawMovement(bool &polarity){
+   if (polarity){
+      CCR1 += 30;
+    }
+    else{
+      CCR1 -= 30;
+    }
+
+    if (CCR1 > PWM_HIGH){
+      polarity = false;
+    }
+    else if (CCR1 < PWM_LOW){
+      polarity = true;
+    }
+    TIM2->CCR1 = CCR1;
 }
 /* USER CODE END 4 */
 
@@ -716,37 +754,25 @@ void StartCtrlSysTask(void *argument)
 	CCR1 = CCR2 = CCR4 = PWM_MID;
 	TIM2->CCR1 = CCR1; TIM2->CCR2 = CCR2; TIM2->CCR4 = CCR4;
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-	//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
 
 	yawCtrl.setTarget(setpointYaw); yawCtrl.registerTimeFunction(HAL_GetTick);
 
 	pitchCtrl.setTarget(setpointPitch); pitchCtrl.registerTimeFunction(HAL_GetTick);
 
-	//rollCtrl.setTarget(setpointRoll); pitchCtrl.RegisterTimeFunction(HAL_GetTick);
+	rollCtrl.setTarget(setpointRoll); pitchCtrl.registerTimeFunction(HAL_GetTick);
 
   /* Infinite loop */
-  int direction = 1;
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
 	osSemaphoreAcquire( targetSmphrHandle, osWaitForever );
 
-	if (direction){
-	      CCR2 += 100;
-	    }
-	    else{
-	      CCR2 -= 100;
-	    }
+		yawCtrl.tick();
+		pitchCtrl.tick();
+		rollCtrl.tick();
 
-	    if (CCR2 > PWM_HIGH){
-	      direction = 0;
-	    }
-	    else if (CCR2 < PWM_LOW){
-	      direction = 1;
-	    }
-    TIM2->CCR2 = CCR2;
-	osSemaphoreRelease( spatialSmphrHandle );
 	osSemaphoreRelease( targetSmphrHandle );
+	osSemaphoreRelease( spatialSmphrHandle );
 	osDelay(CONTROL_FREQ);
   }
 
@@ -770,14 +796,22 @@ void StartLedBattTask(void *argument)
    osSemaphoreAcquire( stateSmphrHandle, osWaitForever );
 
 	  if (state == OFF_STATE){
-			HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
 		  osSemaphoreRelease( stateSmphrHandle );
 		  osDelay(1000);
 	  }
-	  else if (state == ON_STATE || state == UNIQUE_STATE || state == -1){
+	  else if (state == ON_STATE){
+		  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+		  osSemaphoreRelease( stateSmphrHandle );
+		  osDelay(500);
+	  }
+	  else if (state == UNIQUE_STATE || state == -1){
 		  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
 		  osSemaphoreRelease( stateSmphrHandle );
 		  osDelay(100);
+	  }
+	  else{
+		  osSemaphoreRelease( stateSmphrHandle );
 	  }
 
   }
@@ -797,16 +831,15 @@ void StartIMUTask(void *argument)
   /* USER CODE BEGIN StartIMUTask */
   /* Infinite loop */
 
-	//bno055_assignI2C(&hi2c1);
-	//bno055_reset();
-	//bno055_setup();
-	//bno055_setOperationModeNDOF();
+	bno055_assignI2C(&hi2c1);
+	bno055_setup();
+	bno055_setOperationModeNDOF();
   for(;;)
   {
 	osSemaphoreAcquire( spatialSmphrHandle, osWaitForever );
-	osSemaphoreRelease( targetSmphrHandle );
-	//spatialOrientation = bno055_getVectorEuler();
-	//printf("y%.2fyp%.2fpr%.2fr\n", spatialOrientation.x, spatialOrientation.y, spatialOrientation.z);
+
+		spatialOrientation = bno055_getVectorEuler();
+
 	osSemaphoreRelease( spatialSmphrHandle );
 	osDelay(IMU_FREQ);
   }
@@ -825,34 +858,42 @@ void StartTargetSetTask(void *argument)
 {
   /* USER CODE BEGIN StartTargetSetTask */
   /* Infinite loop */
-	//TODO: Change timer values to actual set-point values when the prototype is put together
   for(;;)
   {
 	osEventFlagsWait(setPointButtonEvents,0x50, osFlagsWaitAll, osWaitForever);
+
 	osSemaphoreAcquire( targetSmphrHandle, osWaitForever );
-	//setpointPitch = setpointPitch+3;
-	//pitchCtrl.setTarget(setpointPitch);
 
 	if (!HAL_GPIO_ReadPin (GPIOA,GPIO_PIN_6)){
-		CCR2 += 1000;
-			TIM2->CCR2 = CCR2;
+
+		setpointPitch -= 3;
+		pitchCtrl.setTarget(setpointPitch);
 
 	}
-	else if (!HAL_GPIO_ReadPin (GPIOB,GPIO_PIN_7)){
-			CCR2 -= 1000;
-			TIM2->CCR2 = CCR2;
+	else if (!HAL_GPIO_ReadPin (GPIOA,GPIO_PIN_7)){
+
+		setpointPitch += 3;
+
+		pitchCtrl.setTarget(setpointPitch);
+
 	}
-  else if (!HAL_GPIO_ReadPin (GPIOB,GPIO_PIN_1)){
-			CCR1 -= 1000;
-			TIM2->CCR1 = CCR1;
+	else if (!HAL_GPIO_ReadPin (GPIOB,GPIO_PIN_1)){
+
+		setpointYaw -=  3;
+		yawCtrl.setTarget(setpointYaw);
+
 	}
-  else if (!HAL_GPIO_ReadPin (GPIOA,GPIO_PIN_0)){
-			CCR1 -= 1000;
-			TIM2->CCR1 = CCR1;
+	else if (!HAL_GPIO_ReadPin (GPIOB,GPIO_PIN_0)){
+
+	  	setpointYaw +=  3;
+	  	yawCtrl.setTarget(setpointYaw);
+
 	}
+
 	osSemaphoreRelease( targetSmphrHandle );
     osEventFlagsClear(setPointButtonEvents, 0x50);
 	osDelay(debounceDelay);
+
   }
     osThreadTerminate(NULL);
   /* USER CODE END downButton */
@@ -912,25 +953,13 @@ void StartUniqueMovement(void *argument)
 {
   /* USER CODE BEGIN StartUniqueMovement */
   /* Infinite loop */
-  CCR2 = PWM_MID;
-  int direction = 1;
+  bool direction = true;
+  TIM2->CCR2 = PWM_MID;
+  TIM2->CCR4 = PWM_MID;
   for(;;)
   {
-    if (direction){
-      CCR2 += 30;
-    }
-    else{
-      CCR2 -= 30;
-    }
-
-    if (CCR2 > PWM_HIGH){
-      direction = 0;
-    }
-    else if (CCR2 < PWM_LOW){
-      direction = 1;
-    }
-    TIM2->CCR2 = CCR2;
-    osDelay(UNIQUE_FREQ);
+   yawMovement(direction);
+   osDelay(UNIQUE_FREQ);
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartUniqueMovement */
