@@ -59,6 +59,7 @@
 #define KI_r 0.008
 
 #define debounceDelay 50
+#define modeChangeDelay 800
 #define OFF_STATE 0
 #define ON_STATE 1
 #define UNIQUE_STATE 2
@@ -217,7 +218,7 @@ bno055_vector_t spatialOrientation;
 int CCR1,CCR2,CCR4;
 PIDController<float> yawCtrl(KP_y,KD_y,KI_y, getYaw, yawPWM), pitchCtrl(KP_p,KD_p,KI_p, getPitch, pitchPWM),rollCtrl(KP_r,KD_r,KI_r, getRoll, rollPWM);
 float setpointYaw, setpointPitch, setpointRoll;
-int state = OFF_STATE;
+int state;
 
 
 osThreadId_t OFF_threads[OFF_NUM_THREADS];
@@ -914,9 +915,13 @@ void StartStateMachine(void *argument)
 // #define ON_STATE 1
 // #define UNIQUE_STATE 2
   /* Infinite loop */
+	state = OFF_STATE;
+	transitionOFF();
   for(;;)
   {
     osEventFlagsWait(stateMachineEvents,0x69, osFlagsWaitAll, osWaitForever);
+	osSemaphoreAcquire( stateSmphrHandle, osWaitForever );
+
     state++; //increment the state :3
     switch(state){
       case OFF_STATE:
@@ -932,10 +937,11 @@ void StartStateMachine(void *argument)
       default:
       state = OFF_STATE;
     }
+    osSemaphoreRelease( stateSmphrHandle);
 
 
     osEventFlagsClear(stateMachineEvents, 0x69);
-    osDelay( debounceDelay );
+    osDelay( modeChangeDelay );
   }
   osThreadTerminate(NULL);
   /* USER CODE END StartStateMachine */
