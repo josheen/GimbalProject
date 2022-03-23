@@ -13,9 +13,11 @@ void setpointButtons(){
 
 void modeChangeButton(){
 	cur_time = HAL_GetTick();
-
-	if (cur_time - prev_time > 3000){
+	//button switching issues while prototyping
+	if (cur_time - prev_time > 300){
 	osEventFlagsSet( stateMachineEvents, 0x69 );
 	}
+
+	prev_time = cur_time;
 
 }
