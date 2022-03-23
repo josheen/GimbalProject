@@ -14,7 +14,7 @@ void setpointButtons(){
 void modeChangeButton(){
 	cur_time = HAL_GetTick();
 
-	if (cur_time - prev_time > 1500){
+	if (cur_time - prev_time > 3000){
 	osEventFlagsSet( stateMachineEvents, 0x69 );
 	}
 

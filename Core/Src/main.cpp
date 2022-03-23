@@ -46,10 +46,10 @@
 #define PWM_HIGH 20315.85
 #define PWM_LOW 6500
 #define PWM_MID 12000
-#define PWM_HIGH_Y 19000
-#define PWM_LOW_Y 7000
+#define PWM_HIGH_Y 18000
+#define PWM_LOW_Y 8000
 #define KP_y 1.9
-#define KD_y 0.0008
+#define KD_y 0.001
 #define KI_y 0.008
 #define KP_p 3.1
 #define KD_p 0.0005
@@ -59,7 +59,7 @@
 #define KI_r 0.008
 
 #define debounceDelay 50
-#define modeChangeDelay 800
+#define modeChangeDelay 1200
 #define OFF_STATE 0
 #define ON_STATE 1
 #define UNIQUE_STATE 2
@@ -731,10 +731,10 @@ void yawMovement(bool &polarity){
       CCR1 -= 30;
     }
 
-    if (CCR1 > PWM_HIGH){
+    if (CCR1 > PWM_HIGH_Y){
       polarity = false;
     }
-    else if (CCR1 < PWM_LOW){
+    else if (CCR1 < PWM_LOW_Y){
       polarity = true;
     }
     TIM2->CCR1 = CCR1;
