@@ -770,7 +770,8 @@ void StartCtrlSysTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
 
-	CCR1 = CCR2 = CCR4 = PWM_MID;
+	CCR1 = CCR4 = PWM_MID;
+  CCR2 = PWM_MID-1500;
 	TIM2->CCR1 = CCR1; TIM2->CCR2 = CCR2; TIM2->CCR4 = CCR4;
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 
@@ -978,8 +979,8 @@ void StartUniqueMovement(void *argument)
   /* USER CODE BEGIN StartUniqueMovement */
   /* Infinite loop */
   bool direction = true;
-  TIM2->CCR2 = PWM_MID;
-  TIM2->CCR4 = PWM_MID;
+  TIM2->CCR2 = PWM_MID-1500;
+  TIM2->CCR4 = PWM_MID+500;
   for(;;)
   {
    yawMovement(direction);
