@@ -70,6 +70,7 @@
 #define CONTROL_FREQ 3
 #define IMU_FREQ 3
 #define UNIQUE_FREQ 10
+#define NUMOFBLINKS 100
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -622,7 +623,6 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
 void yawPWM(float CCR_val){
 
 	CCR1 += (int)CCR_val;
@@ -659,7 +659,7 @@ void pitchPWM(float CCR_val){
 
 void rollPWM(float CCR_val){
 
-	CCR4 -= (int)CCR_val;
+	CCR4 += (int)CCR_val;
 
 		if (CCR4 <PWM_LOW){
 			TIM2->CCR4 = PWM_LOW;
@@ -674,23 +674,35 @@ void rollPWM(float CCR_val){
 		//HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 }
 
+float prevYaw = 0;
+int yawPrevTime = 0;
+int yawCurTime = 0;
+
 float getYaw(){
 	float yaw;
-	if (spatialOrientation.x > 180){
-		yaw = spatialOrientation.x-360;
+  // yawCurTime = HAL_GetTick();
+  // if ((((prevYaw-spatialOrientation.x) > 330) || ((prevYaw-spatialOrientation.x) < -330)) && (yawCurTime-yawPrevTime < 30)){
+  //   yaw = prevYaw;
+  // }
+	// else 
+  if (spatialOrientation.x > 180){
+		yaw = spatialOrientation.x - 360;
 	}
 	else{
 		yaw = spatialOrientation.x;
 	}
+  	yawPrevTime = yawCurTime;
+  	prevYaw = yaw;
+
 	return yaw;
 }
 
 float getPitch(){
-	return spatialOrientation.y;
+	return -spatialOrientation.z;
 }
 
 float getRoll(){
-	return spatialOrientation.z;
+	return -spatialOrientation.y;
 }
 
 void updatePitchSetPoint(float newSet){
@@ -707,6 +719,12 @@ for(int i = 0; i < OFF_NUM_THREADS; ++i){
 }
 
 void transitionON(){
+
+	for(int i = 0; i < NUMOFBLINKS; i++){
+	  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+	  osSemaphoreRelease( stateSmphrHandle );
+	  osDelay(20);
+	}
   UNIQUE_threads[0] = osThreadNew(StartCtrlSysTask, NULL, &controlSysTask_attributes);
   UNIQUE_threads[1] = osThreadNew(StartIMUTask, NULL, &imuTask_attributes);
   UNIQUE_threads[2] = osThreadNew(StartTargetSetTask, NULL, &targetSetTask_attributes);
