@@ -48,7 +48,7 @@
 #define PWM_MID 12000
 #define PWM_HIGH_Y 18000
 #define PWM_LOW_Y 8000
-#define KP_y 1.9
+#define KP_y 2.8
 #define KD_y 0.001
 #define KI_y 0.008
 #define KP_p 3.1
@@ -71,6 +71,8 @@
 #define IMU_FREQ 3
 #define UNIQUE_FREQ 10
 #define NUMOFBLINKS 100
+#define ROTATIONOFFSET 360
+#define PWM_HYSTERESIS 3000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -680,19 +682,22 @@ int yawCurTime = 0;
 
 float getYaw(){
 	float yaw;
-  // yawCurTime = HAL_GetTick();
-  // if ((((prevYaw-spatialOrientation.x) > 330) || ((prevYaw-spatialOrientation.x) < -330)) && (yawCurTime-yawPrevTime < 30)){
-  //   yaw = prevYaw;
-  // }
-	// else 
-  if (spatialOrientation.x > 180){
-		yaw = spatialOrientation.x - 360;
-	}
-	else{
-		yaw = spatialOrientation.x;
-	}
-  	yawPrevTime = yawCurTime;
-  	prevYaw = yaw;
+    //if you have already rotated clockwise and your spatial orientation is greater than 180 then return larger positive value
+    if ( CCR1 > PWM_MID + PWM_HYSTERESIS && spatialOrientation.x < ROTATIONOFFSET/2 ){
+      yaw = spatialOrientation.x;
+    }
+    //if you have rotated counter clockwise and your spatial orientation is greater than 180, then return the negative value
+    else if ( CCR1 < PWM_MID - PWM_HYSTERESIS && spatialOrientation.x > ROTATIONOFFSET/2 ){
+      yaw = spatialOrientation.x - ROTATIONOFFSET;
+    }
+    else{
+      if ( spatialOrientation.x < ROTATIONOFFSET/2 ){
+      yaw = spatialOrientation.x;
+      }
+      else{
+        yaw = spatialOrientation.x - ROTATIONOFFSET;
+      }
+    }
 
 	return yaw;
 }
@@ -980,7 +985,7 @@ void StartUniqueMovement(void *argument)
   /* Infinite loop */
   bool direction = true;
   TIM2->CCR2 = PWM_MID-1500;
-  TIM2->CCR4 = PWM_MID+500;
+  TIM2->CCR4 = PWM_MID+1300;
   for(;;)
   {
    yawMovement(direction);
