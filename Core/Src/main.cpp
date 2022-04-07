@@ -48,8 +48,8 @@
 #define PWM_MID 12000
 #define PWM_HIGH_Y 18000
 #define PWM_LOW_Y 8000
-#define KP_y 2.8
-#define KD_y 0.001
+#define KP_y 2.3
+#define KD_y 0.0005
 #define KI_y 0.008
 #define KP_p 3.1
 #define KD_p 0.0005
@@ -631,9 +631,11 @@ void yawPWM(float CCR_val){
 
 	if (CCR1 < PWM_LOW_Y){
 		TIM2->CCR1 = PWM_LOW_Y;
+    CCR1 = PWM_LOW_Y;
 	}
 	else if (CCR1 >PWM_HIGH_Y){
 		TIM2->CCR1 = PWM_HIGH_Y;
+    CCR1 = PWM_HIGH_Y;
 	}
 	else{
 		TIM2->CCR1 = CCR1;
@@ -648,9 +650,11 @@ void pitchPWM(float CCR_val){
 
 	if (CCR2 <PWM_LOW){
 		TIM2->CCR2 = PWM_LOW;
+    CCR2 = PWM_LOW;
 	}
 	else if (CCR2 >PWM_HIGH){
 		TIM2->CCR2 = PWM_HIGH;
+    CCR2 = PWM_HIGH;
 	}
 	else{
 		TIM2->CCR2 = CCR2;
@@ -665,9 +669,11 @@ void rollPWM(float CCR_val){
 
 		if (CCR4 <PWM_LOW){
 			TIM2->CCR4 = PWM_LOW;
+      CCR4 = PWM_LOW;
 		}
 		else if (CCR4 >PWM_HIGH){
 			TIM2->CCR4 = PWM_HIGH;
+      CCR4 = PWM_HIGH;
 		}
 		else{
 			TIM2->CCR4 = CCR4;
@@ -721,6 +727,7 @@ for(int i = 0; i < OFF_NUM_THREADS; ++i){
      osThreadTerminate(OFF_threads[i]);
     }
   }
+	TIM2->CCR1 = 0; TIM2->CCR2 = 0; TIM2->CCR4 = 0;
 }
 
 void transitionON(){
@@ -800,7 +807,7 @@ void StartCtrlSysTask(void *argument)
 	osSemaphoreRelease( spatialSmphrHandle );
 	osDelay(CONTROL_FREQ);
   }
-
+  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_4);
   osThreadTerminate(NULL);
   /* USER CODE END 5 */
 }
@@ -984,6 +991,7 @@ void StartUniqueMovement(void *argument)
   /* USER CODE BEGIN StartUniqueMovement */
   /* Infinite loop */
   bool direction = true;
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
   TIM2->CCR2 = PWM_MID-1500;
   TIM2->CCR4 = PWM_MID+1300;
   for(;;)
@@ -991,6 +999,7 @@ void StartUniqueMovement(void *argument)
    yawMovement(direction);
    osDelay(UNIQUE_FREQ);
   }
+  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1);  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_2);  HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_4);
   osThreadTerminate(NULL);
   /* USER CODE END StartUniqueMovement */
 }
